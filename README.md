@@ -46,11 +46,11 @@ Claude Visor adds persistent menu bar content that shows session status and tool
 ## Build
 
 ```bash
-xcodebuild -scheme ClaudeIsland -configuration Debug build \
+xcodebuild -scheme ClaudeVisor -configuration Debug build \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 
 # The built app is at:
-# ~/Library/Developer/Xcode/DerivedData/ClaudeIsland-*/Build/Products/Debug/Claude Visor.app
+# ~/Library/Developer/Xcode/DerivedData/ClaudeVisor-*/Build/Products/Debug/Claude Visor.app
 ```
 
 ## How It Works

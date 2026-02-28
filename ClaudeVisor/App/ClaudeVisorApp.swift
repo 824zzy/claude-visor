@@ -1,5 +1,5 @@
 //
-//  ClaudeIslandApp.swift
+//  ClaudeVisorApp.swift
 //  ClaudeIsland
 //
 //  Dynamic Island for monitoring Claude Code instances
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct ClaudeIslandApp: App {
+struct ClaudeVisorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
