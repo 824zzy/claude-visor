@@ -16,14 +16,12 @@
 
 > Forked from [Claude Island](https://github.com/farouqaldori/claude-island) with significant enhancements for multi-session workflows.
 
-<!--
-## Screenshots
+## Overview
 
-TODO: Add screenshots here
-| Idle | Processing | Pending |
-|------|-----------|---------|
-| ![idle](screenshots/idle.png) | ![processing](screenshots/processing.png) | ![pending](screenshots/pending.png) |
--->
+<div align="center">
+  <img src="screenshots/menubar-overview.png" alt="Claude Visor menu bar" width="100%" />
+  <p><em>Status dots + aggregate summary on the left, live tool activity on the right</em></p>
+</div>
 
 ## What's Different from Claude Island
 
