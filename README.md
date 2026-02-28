@@ -1,12 +1,29 @@
 <div align="center">
-  <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">Claude Visor</h3>
-  <p align="center">
+  <img src="icon.png" alt="Claude Visor" width="128" height="128">
+  <h1>Claude Visor</h1>
+  <p><strong>Your Claude sessions, always in sight.</strong></p>
+  <p>
     A macOS notch overlay for managing multiple Claude Code sessions at a glance.
     <br />
-    Forked from <a href="https://github.com/farouqaldori/claude-island">Claude Island</a> with significant enhancements for multi-session workflows.
+    <br />
+    <a href="#build"><img src="https://img.shields.io/badge/macOS-15.6+-black?logo=apple&logoColor=white" alt="macOS 15.6+" /></a>
+    <a href="#license"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License" /></a>
+    <a href="https://github.com/824zzy/claude-visor/stargazers"><img src="https://img.shields.io/github/stars/824zzy/claude-visor?style=social" alt="Stars" /></a>
   </p>
 </div>
+
+---
+
+> Forked from [Claude Island](https://github.com/farouqaldori/claude-island) with significant enhancements for multi-session workflows.
+
+<!--
+## Screenshots
+
+TODO: Add screenshots here
+| Idle | Processing | Pending |
+|------|-----------|---------|
+| ![idle](screenshots/idle.png) | ![processing](screenshots/processing.png) | ![pending](screenshots/pending.png) |
+-->
 
 ## What's Different from Claude Island
 
