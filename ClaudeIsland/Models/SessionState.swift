@@ -47,6 +47,12 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     var conversationInfo: ConversationInfo
 
+    // MARK: - Dynamic Project Name (from latest cwd in JSONL)
+
+    /// The current working project, derived from the latest cwd in the JSONL.
+    /// More accurate than projectName when sessions navigate between directories.
+    var currentProject: String?
+
     // MARK: - Clear Reconciliation
 
     /// When true, the next file update should reconcile chatItems with parser state
@@ -77,7 +83,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
         subagentState: SubagentState = SubagentState(),
         conversationInfo: ConversationInfo = ConversationInfo(
             summary: nil, lastMessage: nil, lastMessageRole: nil,
-            lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil
+            lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil,
+            lastCwd: nil
         ),
         needsClearReconciliation: Bool = false,
         lastActivity: Date = Date(),
@@ -124,9 +131,14 @@ struct SessionState: Equatable, Identifiable, Sendable {
         return sessionId
     }
 
+    /// Best available project name: currentProject > projectName
+    var bestProjectName: String {
+        currentProject ?? projectName
+    }
+
     /// Display title: summary > first user message > project name
     var displayTitle: String {
-        conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
+        conversationInfo.summary ?? conversationInfo.firstUserMessage ?? bestProjectName
     }
 
     /// Best hint for matching window title

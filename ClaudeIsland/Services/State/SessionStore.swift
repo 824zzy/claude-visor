@@ -120,6 +120,20 @@ actor SessionStore {
         let isNewSession = sessions[sessionId] == nil
         var session = sessions[sessionId] ?? createSession(from: event)
 
+        // Deduplicate: if this PID is already tracked under a different session ID,
+        // remove the old session. This handles /resume which creates a new session ID
+        // but reuses the same process.
+        if let pid = event.pid {
+            let staleIds = sessions.keys.filter { existingId in
+                existingId != sessionId && sessions[existingId]?.pid == pid
+            }
+            for staleId in staleIds {
+                Self.logger.debug("Dedup: removing stale session \(staleId.prefix(8), privacy: .public) (PID \(pid) now belongs to \(sessionId.prefix(8), privacy: .public))")
+                sessions.removeValue(forKey: staleId)
+                cancelPendingSync(sessionId: staleId)
+            }
+        }
+
         // Track new session in Mixpanel
         if isNewSession {
             Mixpanel.mainInstance().track(event: "Session Started")
@@ -497,6 +511,14 @@ actor SessionStore {
             cwd: session.cwd
         )
         session.conversationInfo = conversationInfo
+
+        // Update currentProject from the latest cwd in the JSONL
+        if let lastCwd = conversationInfo.lastCwd {
+            let lastComponent = URL(fileURLWithPath: lastCwd).lastPathComponent
+            if lastComponent != session.projectName && !lastComponent.isEmpty {
+                session.currentProject = lastComponent
+            }
+        }
 
         // Handle /clear reconciliation - remove items that no longer exist in parser state
         if session.needsClearReconciliation {
@@ -888,6 +910,14 @@ actor SessionStore {
         // Update conversationInfo (summary, lastMessage, etc.)
         session.conversationInfo = conversationInfo
 
+        // Update currentProject from the latest cwd in the JSONL
+        if let lastCwd = conversationInfo.lastCwd {
+            let lastComponent = URL(fileURLWithPath: lastCwd).lastPathComponent
+            if lastComponent != session.projectName && !lastComponent.isEmpty {
+                session.currentProject = lastComponent
+            }
+        }
+
         // Convert messages to chat items
         let existingIds = Set(session.chatItems.map { $0.id })
 
@@ -963,6 +993,70 @@ actor SessionStore {
     // MARK: - State Publishing
 
     private func publishState() {
+        let sortedSessions = Array(sessions.values).sorted { $0.projectName < $1.projectName }
+        sessionsSubject.send(sortedSessions)
+    }
+
+    // MARK: - Stale Session Cleanup
+
+    private var pruneTask: Task<Void, Never>?
+
+    /// Start periodic pruning of dead sessions (every 10 seconds)
+    func startPeriodicPruning() {
+        pruneTask?.cancel()
+        pruneTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)  // 10 seconds
+                guard !Task.isCancelled else { break }
+                await self?.pruneDeadSessions()
+            }
+        }
+    }
+
+    /// Remove sessions whose Claude process is no longer running.
+    private func pruneDeadSessions() {
+        var didPrune = false
+
+        // 1. Remove sessions with dead PIDs
+        let deadPidIds = sessions.filter { _, session in
+            guard let pid = session.pid else { return false }
+            return kill(Int32(pid), 0) != 0
+        }.map(\.key)
+
+        for sessionId in deadPidIds {
+            Self.logger.debug("Pruning dead PID session: \(sessionId.prefix(8), privacy: .public)")
+            sessions.removeValue(forKey: sessionId)
+            cancelPendingSync(sessionId: sessionId)
+            didPrune = true
+        }
+
+        // 2. Remove sessions with duplicate PIDs (keep the newest)
+        var pidToSessions: [Int: [String]] = [:]
+        for (id, session) in sessions {
+            if let pid = session.pid {
+                pidToSessions[pid, default: []].append(id)
+            }
+        }
+        for (_, sessionIds) in pidToSessions where sessionIds.count > 1 {
+            // Keep the session with the most recent activity
+            let sorted = sessionIds.sorted { a, b in
+                (sessions[a]?.lastActivity ?? .distantPast) > (sessions[b]?.lastActivity ?? .distantPast)
+            }
+            for staleId in sorted.dropFirst() {
+                Self.logger.debug("Pruning duplicate PID session: \(staleId.prefix(8), privacy: .public)")
+                sessions.removeValue(forKey: staleId)
+                cancelPendingSync(sessionId: staleId)
+                didPrune = true
+            }
+        }
+
+        if didPrune {
+            publishStateWithoutPrune()
+        }
+    }
+
+    /// Publish state without triggering another prune cycle
+    private func publishStateWithoutPrune() {
         let sortedSessions = Array(sessions.values).sorted { $0.projectName < $1.projectName }
         sessionsSubject.send(sortedSessions)
     }

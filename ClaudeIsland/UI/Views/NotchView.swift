@@ -23,7 +23,7 @@ struct NotchView: View {
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
-    @State private var isVisible: Bool = false
+    @State private var isVisible: Bool = true
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
 
@@ -133,9 +133,136 @@ struct NotchView: View {
 
     // MARK: - Body
 
+    /// Left edge of the hardware notch (x coordinate)
+    private var notchLeftEdge: CGFloat {
+        viewModel.deviceNotchRect.origin.x
+    }
+
+    /// Right edge of the hardware notch (x coordinate)
+    private var notchRightEdge: CGFloat {
+        viewModel.deviceNotchRect.origin.x + viewModel.deviceNotchRect.width
+    }
+
+    /// Left edge of the actual pill (accounts for expansion beyond hardware notch)
+    private var pillLeftEdge: CGFloat {
+        let totalPillWidth = closedNotchSize.width + expansionWidth
+        return (viewModel.screenRect.width - totalPillWidth) / 2 - 4  // 4px gap
+    }
+
+    /// Right edge of the actual pill (accounts for expansion beyond hardware notch)
+    private var pillRightEdge: CGFloat {
+        let totalPillWidth = closedNotchSize.width + expansionWidth
+        return (viewModel.screenRect.width + totalPillWidth) / 2 + 4  // 4px gap
+    }
+
+    /// Safe width for left side content (avoids app menus)
+    /// Queries the leftmost app menu item to determine available space
+    private var leftSafeWidth: CGFloat {
+        let available = pillLeftEdge
+        let menuBarRightEdge = Self.findAppMenuRightEdge(screenOriginX: viewModel.screenRect.origin.x)
+        if menuBarRightEdge > 0 {
+            // Leave 12px gap from the rightmost menu item
+            return max(0, available - menuBarRightEdge - 12)
+        }
+        return available * 0.5  // Conservative fallback
+    }
+
+    /// Safe width for right side content (avoids status icons)
+    /// Queries the leftmost status bar icon to determine available space
+    private var rightSafeWidth: CGFloat {
+        let available = viewModel.screenRect.width - pillRightEdge
+        let statusLeftEdge = Self.findStatusBarLeftEdge(screenOriginX: viewModel.screenRect.origin.x, screenWidth: viewModel.screenRect.width)
+        if statusLeftEdge > 0 {
+            // Leave 12px gap from the leftmost status icon
+            let usable = statusLeftEdge - pillRightEdge - 12
+            return max(0, usable)
+        }
+        return available * 0.5  // Conservative fallback
+    }
+
+    /// Find the right edge of the app menus (leftmost boundary for our left content)
+    private static func findAppMenuRightEdge(screenOriginX: CGFloat) -> CGFloat {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return 0
+        }
+
+        var maxRight: CGFloat = 0
+        for w in windows {
+            let layer = w[kCGWindowLayer as String] as? Int ?? 0
+            let owner = w[kCGWindowOwnerName as String] as? String ?? ""
+            guard layer == 25 else { continue }
+
+            let bounds = w[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+            let x = (bounds["X"] ?? 0) - screenOriginX
+            let width = bounds["Width"] ?? 0
+
+            // App menus are on the left side, owned by the frontmost app or "Window Server"
+            // Status icons are owned by "Control Center", "SystemUIServer", etc.
+            let isStatusItem = owner == "Control Center" || owner == "SystemUIServer"
+                || owner == "TextInputMenuAgent" || owner == "Spotlight"
+            if !isStatusItem && x < 600 {
+                maxRight = max(maxRight, x + width)
+            }
+        }
+        return maxRight
+    }
+
+    /// Find the left edge of the status bar icons (rightmost boundary for our right content)
+    private static func findStatusBarLeftEdge(screenOriginX: CGFloat, screenWidth: CGFloat) -> CGFloat {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return 0
+        }
+
+        var minLeft: CGFloat = screenWidth
+        for w in windows {
+            let layer = w[kCGWindowLayer as String] as? Int ?? 0
+            guard layer == 25 else { continue }
+
+            let owner = w[kCGWindowOwnerName as String] as? String ?? ""
+            let bounds = w[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+            let x = (bounds["X"] ?? 0) - screenOriginX
+            let height = bounds["Height"] ?? 0
+
+            // Status items are on the right side at menu bar height
+            let isStatusItem = owner == "Control Center" || owner == "SystemUIServer"
+                || owner == "TextInputMenuAgent" || owner == "Spotlight"
+            if isStatusItem && height < 50 && x > screenWidth / 2 {
+                minLeft = min(minLeft, x)
+            }
+        }
+        return minLeft < screenWidth ? minLeft : 0
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
-            // Outer container does NOT receive hits - only the notch content does
+            // Side content flanking the notch (visible in menu bar areas)
+            if viewModel.status == .closed && !sessionMonitor.instances.isEmpty {
+                // Invisible full-width canvas for positioning side content
+                Color.clear
+                    .frame(width: viewModel.screenRect.width, height: closedNotchSize.height)
+                    .overlay(alignment: .topTrailing) {
+                        // Left content: right edge aligned to pill left edge
+                        NotchLeftContent(
+                            sessions: sessionMonitor.instances,
+                            maxWidth: leftSafeWidth
+                        )
+                        .frame(width: leftSafeWidth, height: closedNotchSize.height, alignment: .trailing)
+                        .clipped()
+                        .padding(.trailing, viewModel.screenRect.width - pillLeftEdge)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        // Right content: left edge aligned to pill right edge
+                        NotchRightContent(
+                            sessions: sessionMonitor.instances,
+                            maxWidth: rightSafeWidth
+                        )
+                        .frame(width: rightSafeWidth, height: closedNotchSize.height, alignment: .leading)
+                        .clipped()
+                        .padding(.leading, pillRightEdge)
+                    }
+            }
+
+            // Notch pill overlay
             VStack(spacing: 0) {
                 notchLayout
                     .frame(
@@ -167,7 +294,7 @@ struct NotchView: View {
                         alignment: .top
                     )
                     .animation(viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status)
-                    .animation(openAnimation, value: notchSize) // Animate container size changes between content types
+                    .animation(openAnimation, value: notchSize)
                     .animation(.smooth, value: activityCoordinator.expandingActivity)
                     .animation(.smooth, value: hasPendingPermission)
                     .animation(.smooth, value: hasWaitingForInput)
@@ -190,10 +317,7 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             sessionMonitor.startMonitoring()
-            // On non-notched devices, keep visible so users have a target to interact with
-            if !viewModel.hasPhysicalNotch {
-                isVisible = true
-            }
+            isVisible = true
         }
         .onChange(of: viewModel.status) { oldStatus, newStatus in
             handleStatusChange(from: oldStatus, to: newStatus)
@@ -267,12 +391,12 @@ struct NotchView: View {
                 // Opened: show header content
                 openedHeaderContent
             } else if !showClosedActivity {
-                // Closed without activity: empty space
+                // Closed without activity: transparent (behind hardware notch camera)
                 Rectangle()
                     .fill(.clear)
                     .frame(width: closedNotchSize.width - 20)
             } else {
-                // Closed with activity: black spacer (with optional bounce)
+                // Closed with activity: black spacer (behind hardware notch camera)
                 Rectangle()
                     .fill(.black)
                     .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
@@ -381,18 +505,8 @@ struct NotchView: View {
             activityCoordinator.hideActivity()
             isVisible = true
         } else {
-            // Hide activity when done
+            // Hide activity indicator when done (notch itself stays visible)
             activityCoordinator.hideActivity()
-
-            // Delay hiding the notch until animation completes
-            // Don't hide on non-notched devices - users need a visible target
-            if viewModel.status == .closed && viewModel.hasPhysicalNotch {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && viewModel.status == .closed {
-                        isVisible = false
-                    }
-                }
-            }
         }
     }
 
@@ -405,13 +519,7 @@ struct NotchView: View {
                 waitingForInputTimestamps.removeAll()
             }
         case .closed:
-            // Don't hide on non-notched devices - users need a visible target
-            guard viewModel.hasPhysicalNotch else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !activityCoordinator.expandingActivity.show {
-                    isVisible = false
-                }
-            }
+            break  // Notch stays visible in all states
         }
     }
 

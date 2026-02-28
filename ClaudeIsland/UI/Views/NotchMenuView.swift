@@ -83,13 +83,11 @@ struct NotchMenuView: View {
                 .padding(.vertical, 4)
 
             // About
-            UpdateRow(updateManager: updateManager)
-
             MenuRow(
-                icon: "star",
-                label: "Star on GitHub"
+                icon: "info.circle",
+                label: "Claude Visor"
             ) {
-                if let url = URL(string: "https://github.com/farouqaldori/claude-island") {
+                if let url = URL(string: "https://github.com/824zzy/claude-visor") {
                     NSWorkspace.shared.open(url)
                 }
             }

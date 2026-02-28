@@ -16,6 +16,7 @@ struct ConversationInfo: Equatable {
     let lastToolName: String?  // Tool name if lastMessageRole is "tool"
     let firstUserMessage: String?  // Fallback title when no summary
     let lastUserMessageDate: Date?  // Timestamp of last user message (for stable sorting)
+    let lastCwd: String?  // Most recent working directory from JSONL messages
 }
 
 actor ConversationParser {
@@ -79,7 +80,7 @@ actor ConversationParser {
         guard fileManager.fileExists(atPath: sessionFile),
               let attrs = try? fileManager.attributesOfItem(atPath: sessionFile),
               let modDate = attrs[.modificationDate] as? Date else {
-            return ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+            return ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil, lastCwd: nil)
         }
 
         if let cached = cache[sessionFile], cached.modificationDate == modDate {
@@ -88,7 +89,7 @@ actor ConversationParser {
 
         guard let data = fileManager.contents(atPath: sessionFile),
               let content = String(data: data, encoding: .utf8) else {
-            return ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+            return ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil, lastCwd: nil)
         }
 
         let info = parseContent(content)
@@ -106,6 +107,7 @@ actor ConversationParser {
         var lastMessageRole: String?
         var lastToolName: String?
         var firstUserMessage: String?
+        var lastCwd: String?
         var lastUserMessageDate: Date?
 
         let formatter = ISO8601DateFormatter()
@@ -139,6 +141,11 @@ actor ConversationParser {
             }
 
             let type = json["type"] as? String
+
+            // Track the most recent cwd (first one found in reverse = latest)
+            if lastCwd == nil, let cwd = json["cwd"] as? String, !cwd.isEmpty {
+                lastCwd = cwd
+            }
 
             if lastMessage == nil {
                 if type == "user" || type == "assistant" {
@@ -201,7 +208,8 @@ actor ConversationParser {
             lastMessageRole: lastMessageRole,
             lastToolName: lastToolName,
             firstUserMessage: firstUserMessage,
-            lastUserMessageDate: lastUserMessageDate
+            lastUserMessageDate: lastUserMessageDate,
+            lastCwd: lastCwd
         )
     }
 

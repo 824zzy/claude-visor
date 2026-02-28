@@ -31,6 +31,11 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - Monitoring Lifecycle
 
     func startMonitoring() {
+        // Start periodic cleanup of stale sessions
+        Task {
+            await SessionStore.shared.startPeriodicPruning()
+        }
+
         HookSocketServer.shared.start(
             onEvent: { event in
                 Task {
