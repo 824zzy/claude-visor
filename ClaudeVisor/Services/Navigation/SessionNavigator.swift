@@ -47,18 +47,22 @@ struct SessionNavigator {
         // Step 3: Find the pane containing the marker
         let clickTarget = findPaneWithMarker(marker: marker, ghosttyPid: ghosttyPid)
 
-        // Step 4: Clear the marker by sending a carriage return + clear line
+        // Step 4: Clear the marker
         clearMarker(ttyPath: ttyPath)
 
-        // Step 5: Activate Ghostty
+        // Step 5: Activate Ghostty and raise the correct window
         ghostty.activate()
 
-        // Step 6: Click the matched pane after activation
-        if let (x, y) = clickTarget {
-            debugLog("Found marker in pane at (\(x), \(y))")
+        if let match = clickTarget {
+            debugLog("Found marker in pane at (\(match.clickX), \(match.clickY))")
+
+            // Raise the specific window containing the matched pane
+            AXUIElementPerformAction(match.window, kAXRaiseAction as CFString)
+
+            // Step 6: Click the pane after window is raised
             DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.3) {
-                clickAtPosition(x: x, y: y)
-                debugLog("Clicked pane at (\(x), \(y))")
+                clickAtPosition(x: match.clickX, y: match.clickY)
+                debugLog("Clicked pane at (\(match.clickX), \(match.clickY))")
             }
         } else {
             debugLog("Marker not found in any pane")
@@ -94,8 +98,15 @@ struct SessionNavigator {
 
     // MARK: - Pane Matching
 
+    /// Result of pane matching: the window to raise and coordinates to click
+    private struct PaneMatch {
+        let window: AXUIElement
+        let clickX: CGFloat
+        let clickY: CGFloat
+    }
+
     /// Search all Ghostty panes for the marker string
-    private static func findPaneWithMarker(marker: String, ghosttyPid: pid_t) -> (CGFloat, CGFloat)? {
+    private static func findPaneWithMarker(marker: String, ghosttyPid: pid_t) -> PaneMatch? {
         let appElement = AXUIElementCreateApplication(ghosttyPid)
 
         var windowsRef: CFTypeRef?
@@ -122,7 +133,7 @@ struct SessionNavigator {
                         debugLog("  MATCH: Window \(winIdx) Pane \(paneIdx) at (\(pos.x), \(pos.y))")
                         let clickX = pos.x + size.width / 2
                         let clickY = pos.y + size.height / 2
-                        return (clickX, clickY)
+                        return PaneMatch(window: window, clickX: clickX, clickY: clickY)
                     }
                 }
             }
