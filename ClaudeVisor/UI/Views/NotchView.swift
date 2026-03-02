@@ -26,6 +26,11 @@ struct NotchView: View {
     @State private var isVisible: Bool = true
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
+    @State private var sideClickMonitor: EventMonitor?
+    /// The session currently displayed on the right side (synced with NotchRightContent)
+    @State private var currentRightSession: SessionState?
+    /// The ordered sessions currently displayed as dots on the left side
+    @State private var currentLeftSessions: [SessionState] = []
 
     @Namespace private var activityNamespace
 
@@ -318,6 +323,11 @@ struct NotchView: View {
         .onAppear {
             sessionMonitor.startMonitoring()
             isVisible = true
+            startSideClickMonitor()
+        }
+        .onDisappear {
+            sideClickMonitor?.stop()
+            sideClickMonitor = nil
         }
         .onChange(of: viewModel.status) { oldStatus, newStatus in
             handleStatusChange(from: oldStatus, to: newStatus)
@@ -328,6 +338,61 @@ struct NotchView: View {
         .onChange(of: sessionMonitor.instances) { _, instances in
             handleProcessingChange()
             handleWaitingForInputChange(instances)
+            // Sync the stored session references for click handling
+            currentRightSession = SessionPriority.prioritySession(from: instances)
+            currentLeftSessions = SessionPriority.sortedByPriority(instances)
+        }
+    }
+
+    // MARK: - Side Content Click Handling
+
+    private func startSideClickMonitor() {
+        let monitor = EventMonitor(mask: .leftMouseDown) { [self] event in
+            handleSideClick(event)
+        }
+        monitor.start()
+        sideClickMonitor = monitor
+    }
+
+    private func handleSideClick(_ event: NSEvent) {
+        guard viewModel.status == .closed,
+              !sessionMonitor.instances.isEmpty else { return }
+
+        let mousePos = NSEvent.mouseLocation
+        let screenOriginX = viewModel.screenRect.origin.x
+        let screenOriginY = viewModel.screenRect.origin.y
+        let screenHeight = viewModel.screenRect.height
+
+        let menuBarTop = screenOriginY + screenHeight
+        let menuBarBottom = menuBarTop - closedNotchSize.height - 10
+
+        guard mousePos.y >= menuBarBottom && mousePos.y <= menuBarTop else { return }
+
+        let clickX = mousePos.x - screenOriginX
+
+        // Left side region
+        let leftEnd = pillLeftEdge
+        let leftStart = max(0, leftEnd - leftSafeWidth)
+
+        // Right side region
+        let rightStart = pillRightEdge
+        let rightEnd = min(viewModel.screenRect.width, rightStart + rightSafeWidth)
+
+        if clickX >= leftStart && clickX <= leftEnd {
+            // Left side: use stored sorted sessions for dot-to-session mapping
+            if let target = SessionPriority.sessionForLeftClick(
+                sessions: currentLeftSessions,
+                clickX: clickX,
+                pillLeftEdge: pillLeftEdge,
+                leftSafeWidth: leftSafeWidth
+            ) {
+                SessionNavigator.navigateToSession(target)
+            }
+        } else if clickX >= rightStart && clickX <= rightEnd {
+            // Right side: use the exact session the right content is displaying
+            if let target = currentRightSession {
+                SessionNavigator.navigateToSession(target)
+            }
         }
     }
 

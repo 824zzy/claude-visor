@@ -38,24 +38,9 @@ struct NotchLeftContent: View {
         if sessions.isEmpty {
             EmptyView()
         } else {
-            HStack(spacing: 8) {
-                // Status dots
-                HStack(spacing: 4) {
-                    ForEach(sortedSessions, id: \.stableId) { session in
-                        Circle()
-                            .fill(statusColor(for: session.phase))
-                            .frame(width: 7, height: 7)
-                    }
-                }
-                .fixedSize()
-
-                // Summary text
-                if let summary = summaryText {
-                    Text(summary)
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.45))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            HStack(spacing: 10) {
+                ForEach(sortedSessions, id: \.stableId) { session in
+                    sessionBlock(session)
                 }
             }
             .padding(.trailing, 8)
@@ -63,18 +48,85 @@ struct NotchLeftContent: View {
         }
     }
 
-    /// Sessions sorted: attention-needing first, then by creation order
+    private func sessionBlock(_ session: SessionState) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusColor(for: session.phase))
+                .frame(width: 7, height: 7)
+            Text(phaseLabel(for: session.phase))
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.45))
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func phaseLabel(for phase: SessionPhase) -> String {
+        switch phase {
+        case .processing, .compacting: return "active"
+        case .waitingForApproval: return "pending"
+        case .waitingForInput: return "ready"
+        case .idle: return "idle"
+        case .ended: return "ended"
+        }
+    }
+
+    /// Sessions sorted by priority (same order used for click hit-testing)
     private var sortedSessions: [SessionState] {
+        SessionPriority.sortedByPriority(sessions)
+    }
+
+    // Summary text removed - each session now has its own ●status block
+}
+
+// MARK: - Session Priority Helper
+
+/// Shared logic for session sorting, priority, and left-side hit testing
+enum SessionPriority {
+    /// Returns the highest-priority session for display and navigation
+    static func prioritySession(from sessions: [SessionState]) -> SessionState? {
+        sortedByPriority(sessions).first
+    }
+
+    /// Sort sessions by priority (same order as dots are rendered)
+    static func sortedByPriority(_ sessions: [SessionState]) -> [SessionState] {
         sessions.sorted { a, b in
-            let aPriority = phasePriority(a.phase)
-            let bPriority = phasePriority(b.phase)
-            if aPriority != bPriority { return aPriority < bPriority }
+            let aPri = phasePriority(a.phase)
+            let bPri = phasePriority(b.phase)
+            if aPri != bPri { return aPri < bPri }
             return a.createdAt < b.createdAt
         }
     }
 
-    /// Lower number = higher display priority
-    private func phasePriority(_ phase: SessionPhase) -> Int {
+    /// Given a click X position in the left content area, determine which session was clicked.
+    ///
+    /// New layout: [●active] [10px] [●ready] [10px] [●idle] [8px pad] |pillLeftEdge
+    /// Each session block is roughly equal width. Divide into N equal zones.
+    static func sessionForLeftClick(
+        sessions: [SessionState],
+        clickX: CGFloat,
+        pillLeftEdge: CGFloat,
+        leftSafeWidth: CGFloat
+    ) -> SessionState? {
+        let sorted = sortedByPriority(sessions)
+        guard !sorted.isEmpty else { return nil }
+
+        // Each block: dot(7) + gap(4) + label(~40px) + spacing(10) ≈ 60px
+        let blockWidth: CGFloat = 60
+        let contentWidth = min(CGFloat(sorted.count) * blockWidth + 8, leftSafeWidth)
+
+        // Content is right-aligned, ending at pillLeftEdge
+        let contentLeftEdge = pillLeftEdge - contentWidth
+
+        // Divide into N equal zones
+        let relativeX = clickX - contentLeftEdge
+        let zoneWidth = contentWidth / CGFloat(sorted.count)
+        let zoneIndex = min(max(0, Int(relativeX / zoneWidth)), sorted.count - 1)
+
+        return sorted[zoneIndex]
+    }
+
+    static func phasePriority(_ phase: SessionPhase) -> Int {
         switch phase {
         case .waitingForApproval: return 0
         case .processing, .compacting: return 1
@@ -82,23 +134,6 @@ struct NotchLeftContent: View {
         case .idle: return 3
         case .ended: return 4
         }
-    }
-
-    private var summaryText: String? {
-        let pending = sessions.filter { $0.phase.isWaitingForApproval }.count
-        let active = sessions.filter { $0.phase == .processing || $0.phase == .compacting }.count
-        let ready = sessions.filter { $0.phase == .waitingForInput }.count
-        let total = sessions.count
-
-        var parts: [String] = []
-        if pending > 0 { parts.append("\(pending) pending") }
-        if active > 0 { parts.append("\(active) active") }
-        if ready > 0 { parts.append("\(ready) ready") }
-
-        if parts.isEmpty {
-            return "\(total) sessions"
-        }
-        return parts.joined(separator: " · ")
     }
 }
 
